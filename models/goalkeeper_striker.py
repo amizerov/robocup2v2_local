@@ -191,3 +191,72 @@ def get_actions(observation):
         _striker(r0, ball, field, score, time_remaining),
         _goalkeeper(r1, ball, field, score, time_remaining),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Wrapper class for .pkl serialization
+# ---------------------------------------------------------------------------
+
+class GoalkeeperStriker:
+    """Picklable strategy wrapper.
+
+    The pkl is created with standard pickle (protocol 2) so it contains only
+    a class reference — no compiled bytecode.  Any Python 3.x can load it
+    as long as goalkeeper_striker.py is importable (server puts models/ on
+    sys.path automatically).
+    """
+
+    def get_actions(self, observation):
+        return get_actions(observation)
+
+    def __reduce__(self):
+        # Reconstruct by calling GoalkeeperStriker() with no args.
+        # Standard pickle stores ("goalkeeper_striker", "GoalkeeperStriker")
+        # and imports the class from sys.path at load-time.
+        return (GoalkeeperStriker, ())
+
+
+# ---------------------------------------------------------------------------
+# Generate .pkl  (run: python goalkeeper_striker.py)
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import pickle
+    import importlib.util
+    import sys as _sys
+
+    # Re-load THIS file as the 'goalkeeper_striker' module so that
+    # standard pickle can find the class by import path.
+    _spec = importlib.util.spec_from_file_location("goalkeeper_striker", __file__)
+    _mod  = importlib.util.module_from_spec(_spec)
+    _sys.modules["goalkeeper_striker"] = _mod
+    _spec.loader.exec_module(_mod)  # type: ignore
+
+    model = _mod.GoalkeeperStriker()
+
+    obs = {
+        "my_robots": [
+            {"x": 450, "y": 260, "vx": 0, "vy": 0, "angle": 0, "kick_ready": 1.0},
+            {"x": 330, "y": 380, "vx": 0, "vy": 0, "angle": 0, "kick_ready": 1.0},
+        ],
+        "ball": {"x": 540, "y": 320, "vx": -200, "vy": 30},
+        "score": {"my": 0, "opponent": 0},
+        "time_remaining": 120.0,
+        "field": {
+            "width": 1080.0, "height": 640.0,
+            "goal_y_top": 210.0, "goal_y_bottom": 430.0,
+        },
+        "opponent_robots": [],
+    }
+    r = model.get_actions(obs)
+    assert len(r) == 2, r
+    print("Striker  action:", r[0])
+    print("Goalkeeper action:", r[1])
+
+    out = "goalkeeper_striker.pkl"
+    # Protocol 2 = compatible with Python 3.x (no bytecode, just class ref)
+    with open(out, "wb") as f:
+        pickle.dump(model, f, protocol=2)
+    print(f"\nFile {out} created! (standard pickle, cross-platform)")
+
+

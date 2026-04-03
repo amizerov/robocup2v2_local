@@ -35,6 +35,10 @@ MODELS_DIR.mkdir(exist_ok=True)
 WEB_DIR = BASE_DIR / "web"
 DB_PATH = BASE_DIR / "leaderboard.db"
 
+# Allow standard-pickled strategy classes to be found by Python's import system
+if str(MODELS_DIR) not in sys.path:
+    sys.path.insert(0, str(MODELS_DIR))
+
 ALLOWED_EXTENSIONS = {".pkl", ".py"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
