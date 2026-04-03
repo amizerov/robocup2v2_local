@@ -7,11 +7,15 @@ Or:   uvicorn server:app --host 127.0.0.1 --port 8080
 from __future__ import annotations
 
 import importlib.util
+import logging
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("robocup")
 
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
@@ -92,7 +96,7 @@ def _load_model(path: Path):
 
 
 def _safe_get_actions(model: Any, obs: dict) -> list:
-    """Call model.get_actions(obs); return zeroes on any failure."""
+    """Call model.get_actions(obs); log and return zeroes on any failure."""
     try:
         result = model.get_actions(obs)
         if not isinstance(result, (list, tuple)) or len(result) < 2:
@@ -106,7 +110,8 @@ def _safe_get_actions(model: Any, obs: dict) -> list:
             else:
                 actions.append([float(action[0]), float(action[1]), 0.0])
         return actions
-    except Exception:
+    except Exception as exc:
+        print(f"[robocup] get_actions error: {exc}", file=sys.stderr, flush=True)
         return [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
 
@@ -216,6 +221,15 @@ app.mount("/web", StaticFiles(directory=WEB_DIR, html=True), name="web")
 # ---------------------------------------------------------------------------
 # Static pages
 # ---------------------------------------------------------------------------
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    fav = WEB_DIR / "favicon.ico"
+    if fav.exists():
+        return FileResponse(fav)
+    from starlette.responses import Response
+    return Response(status_code=204)
+
 
 @app.get("/")
 def root() -> FileResponse:
