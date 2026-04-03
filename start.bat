@@ -51,6 +51,9 @@ echo      Браузер откроется автоматически.
 echo      Нажмите Ctrl+C для остановки.
 echo.
 
+:: Open browser after 2s delay (background)
+start /b cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:8080"
+
 python server.py
 
 pause
