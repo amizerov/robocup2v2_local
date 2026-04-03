@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoboCup Local Gamemaster</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===== Header ===== -->
+  <header class="header">
+    <div class="logo">🤖 RoboCup <span class="accent">Local</span></div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="match">⚽ Матч</button>
+      <button class="tab" data-tab="leaderboard">🏆 Таблица</button>
+      <button class="tab" data-tab="docs">📖 Документация</button>
+    </nav>
+    <div class="header-right">
+      <span class="badge">Локальный геймастер</span>
+    </div>
+  </header>
+
+  <!-- ===== Main content ===== -->
+  <main class="main">
+
+    <!-- ======== TAB: MATCH ======== -->
+    <section id="tab-match" class="tab-panel active">
+
+      <!-- Setup row -->
+      <div class="setup-block">
+        <div class="team-card team1-card">
+          <div class="team-label"><span class="dot dot-t1"></span> Команда 1 <span class="team-color-hint">(жёлтые)</span></div>
+          <select id="sel-t1" class="model-select"></select>
+        </div>
+
+        <div class="vs-block">
+          <div class="vs-text">VS</div>
+          <div class="setup-params">
+            <label class="param-label">
+              Длительность
+              <div class="range-row">
+                <input type="range" id="period-range" min="10" max="300" step="10" value="60">
+                <span id="period-display" class="range-val">60 с</span>
+              </div>
+            </label>
+            <label class="param-label">
+              Скорость симуляции
+              <select id="speed-select" class="speed-sel">
+                <option value="0">Максимум (без задержек)</option>
+                <option value="3">3× — очень быстро</option>
+                <option value="6">6× — быстро</option>
+                <option value="10" selected>10× — наблюдение</option>
+                <option value="20">20× — подробно</option>
+                <option value="60">1:1 реальное время</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="team-card team2-card">
+          <div class="team-label"><span class="dot dot-t2"></span> Команда 2 <span class="team-color-hint">(синие)</span></div>
+          <select id="sel-t2" class="model-select"></select>
+        </div>
+      </div>
+
+      <!-- Action bar -->
+      <div class="action-bar">
+        <button id="btn-start" class="btn-primary">▶ Старт</button>
+        <button id="btn-stop"  class="btn-danger" disabled>■ Стоп</button>
+        <div class="action-sep"></div>
+        <button id="btn-upload" class="btn-ghost">⬆ Загрузить модель</button>
+        <input type="file" id="upload-input" accept=".pkl,.py" hidden>
+        <button id="btn-refresh" class="btn-ghost" title="Обновить список моделей">⟳</button>
+        <div id="upload-status" class="upload-status"></div>
+      </div>
+
+      <!-- Score bar -->
+      <div class="score-bar" id="score-bar">
+        <div class="score-team t1-name" id="sc-t1-name">—</div>
+        <div class="score-center">
+          <span id="sc-goals-t1" class="score-num">0</span>
+          <span class="score-colon">:</span>
+          <span id="sc-goals-t2" class="score-num">0</span>
+        </div>
+        <div class="score-team t2-name" id="sc-t2-name">—</div>
+        <div class="score-time" id="sc-time">0:00 / 1:00</div>
+        <div class="score-phase" id="sc-phase"></div>
+      </div>
+
+      <!-- Canvas container -->
+      <div class="canvas-wrap">
+        <canvas id="field" width="1200" height="760"></canvas>
+        <div id="match-overlay" class="match-overlay hidden">
+          <div class="overlay-card">
+            <div class="overlay-badge" id="ov-badge">ФИНАЛЬНЫЙ СВИСТОК</div>
+            <div class="overlay-score" id="ov-score">0 : 0</div>
+            <div class="overlay-winner" id="ov-winner"></div>
+            <button class="btn-primary" id="ov-close">Закрыть</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Models panel -->
+      <div class="models-panel">
+        <div class="models-panel-title">Загруженные модели</div>
+        <div id="model-list" class="model-chips"></div>
+      </div>
+
+      <!-- Error bar -->
+      <div id="error-bar" class="error-bar hidden"></div>
+
+    </section>
+
+    <!-- ======== TAB: LEADERBOARD ======== -->
+    <section id="tab-leaderboard" class="tab-panel">
+      <div class="lb-header">
+        <h2 class="lb-title">Таблица результатов</h2>
+        <button id="btn-reset-lb" class="btn-ghost btn-danger-soft">🗑 Сбросить историю</button>
+      </div>
+
+      <div class="lb-section">
+        <h3 class="lb-sub">Рейтинг моделей</h3>
+        <table class="lb-table" id="stats-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Модель</th>
+              <th title="Матчи">М</th>
+              <th title="Победы" class="good">В</th>
+              <th title="Ничьи">Н</th>
+              <th title="Поражения" class="bad">П</th>
+              <th title="Голы">Г+:Г−</th>
+              <th title="Очки"><strong>Очки</strong></th>
+            </tr>
+          </thead>
+          <tbody id="stats-body">
+            <tr><td colspan="8" class="empty-msg">Нет данных — сыграйте хотя бы один матч</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="lb-section">
+        <h3 class="lb-sub">История матчей</h3>
+        <table class="lb-table" id="history-table">
+          <thead>
+            <tr>
+              <th>Команда 1</th>
+              <th>Счёт</th>
+              <th>Команда 2</th>
+              <th>Результат</th>
+              <th>Время</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr><td colspan="6" class="empty-msg">История пуста</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======== TAB: DOCS ======== -->
+    <section id="tab-docs" class="tab-panel">
+      <div class="docs-wrap">
+
+        <h2 class="docs-title">Документация</h2>
+
+        <div class="docs-card">
+          <h3>Что это?</h3>
+          <p>Локальный геймастер — инструмент для разработки и тестирования стратегий роботофутбола
+             <strong>без интернета</strong>. Загружайте свои модели, запускайте матчи между ними
+             и смотрите статистику в таблице.</p>
+        </div>
+
+        <div class="docs-card">
+          <h3>Формат модели</h3>
+          <p>Модель — это Python-объект с методом <code>get_actions(observation)</code>,
+             сохранённый через <code>cloudpickle</code>, или обычный <code>.py</code>-файл
+             с функцией <code>get_actions</code>.</p>
+          <pre><code class="code-block">import cloudpickle
+
+class MyStrategy:
+    def get_actions(self, observation):
+        # observation — dict (описание ниже)
+        # Вернуть список из 2 действий: [[ax1, ay1, kick1], [ax2, ay2, kick2]]
+        return [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
+
+with open("my_model.pkl", "wb") as f:
+    cloudpickle.dump(MyStrategy(), f)</code></pre>
+        </div>
+
+        <div class="docs-card">
+          <h3>Описание observation</h3>
+          <p>Параметр <code>observation</code> — словарь с полным состоянием матча.
+             Ваша команда <strong>всегда атакует вправо</strong> (x → +∞ = ворота соперника).</p>
+          <pre><code class="code-block">{
+  "my_robots": [
+    {
+      "x": 320.0,      # позиция по горизонтали (пиксели поля, 0 = левый край)
+      "y": 260.0,      # позиция по вертикали (0 = верхний край)
+      "vx": 50.0,      # скорость по x (пикс/с)
+      "vy": -30.0,     # скорость по y
+      "angle": 15.0,   # угол поворота (градусы, 0 = вправо)
+      "kick_ready": 1.0  # 1.0 = удар готов, 0.0 = откат
+    },
+    { … }  # второй робот
+  ],
+  "opponent_robots": [ { … }, { … } ],  # те же поля, зеркально
+  "ball": {
+    "x": 540.0, "y": 320.0,
+    "vx": 120.0, "vy": 0.0
+  },
+  "score": { "my": 0, "opponent": 1 },
+  "time_remaining": 45.3,   # секунды до конца
+  "period_seconds": 60.0,
+  "field": {
+    "x": 0.0, "y": 0.0,
+    "width": 1080.0, "height": 640.0,
+    "goal_y_top": 210.0,
+    "goal_y_bottom": 430.0
+  }
+}</code></pre>
+        </div>
+
+        <div class="docs-card">
+          <h3>Формат действий</h3>
+          <p>Верните список из 2 элементов, по одному на каждого робота:</p>
+          <pre><code class="code-block">[
+  [ax, ay, kick],   # робот 0
+  [ax, ay, kick],   # робот 1
+]
+# ax, ay — ускорение: float в диапазоне [-1, 1]
+# kick   — 0.0 или 1.0 (удар, если мяч рядом и kicker готов)</code></pre>
+        </div>
+
+        <div class="docs-card">
+          <h3>Физика</h3>
+          <table class="param-table">
+            <tr><td>Шаг симуляции</td><td><code>dt = 1/60 с</code></td></tr>
+            <tr><td>Ускорение робота</td><td><code>900 пикс/с²</code></td></tr>
+            <tr><td>Макс. скорость</td><td><code>360 пикс/с</code></td></tr>
+            <tr><td>Торможение робота</td><td><code>×0.90 за шаг</code></td></tr>
+            <tr><td>Торможение мяча</td><td><code>×0.992 за шаг</code></td></tr>
+            <tr><td>Сила удара</td><td><code>900 пикс/с</code></td></tr>
+            <tr><td>Откат удара</td><td><code>3 секунды</code></td></tr>
+            <tr><td>Поле</td><td><code>1080 × 640 пикс</code></td></tr>
+            <tr><td>Ворота (высота)</td><td><code>220 пикс (centre ± 110)</code></td></tr>
+          </table>
+        </div>
+
+        <div class="docs-card">
+          <h3>Пример стратегии (.py)</h3>
+          <pre><code class="code-block">"""my_strategy.py — шаблон стратегии для RoboCup 2v2.
+
+get_actions(получает diцt observation со следующими ключами:
+  my_robots       — список роботов команды: {x, y, vx, vy, angle, kick_ready}
+  opponent_robots — список роботов соперника: {x, y, vx, vy, angle, kick_ready}
+  ball            — {x, y, vx, vy}
+  score           — {my: int, opponent: int}
+  time_remaining  — float  (секунд)
+  field           — {width, height, goal_y_top, goal_y_bottom}
+class — ваша команда всегда атакует вправо.
+"""
+import math
+
+def _steer(rx, ry, tx, ty, gain=5.0):
+    dx, dy = tx - rx, ty - ry
+    d = math.hypot(dx, dy)
+    if d &lt; 1.0: return 0.0, 0.0
+    return max(-1.0, min(1.0, dx / d * gain)), max(-1.0, min(1.0, dy / d * gain))
+
+def get_actions(observation):
+    r0, r1 = observation["my_robots"]
+    ball   = observation["ball"]
+    score  = observation["score"]
+    t_left = observation["time_remaining"]
+
+    bx, by = ball["x"], ball["y"]
+
+    # Атакуем агрессивнее, если проигрываем
+    gain = 6.0 if score["my"] &lt; score["opponent"] else 4.5
+
+    ax0, ay0 = _steer(r0["x"], r0["y"], bx, by, gain)
+    k0 = 1.0 if math.hypot(r0["x"]-bx, r0["y"]-by) &lt; 55
+               and r0["kick_ready"] &gt; 0.5 else 0.0
+
+    ax1, ay1 = _steer(r1["x"], r1["y"], bx + 30, by, gain * 0.85)
+    k1 = 1.0 if math.hypot(r1["x"]-bx, r1["y"]-by) &lt; 55
+               and r1["kick_ready"] &gt; 0.5 else 0.0
+
+    return [[ax0, ay0, k0], [ax1, ay1, k1]]</code></pre>
+        </div>
+
+        <div class="docs-card">
+          <h3>Советы</h3>
+          <ul class="tips-list">
+            <li>Используйте <strong>скорость «Максимум»</strong> для быстрых тестов, <strong>10×</strong> — чтобы наблюдать за игрой.</li>
+            <li>Запускайте модель против <strong>самой себя</strong> — это покажет слабые места стратегии.</li>
+            <li>При загрузке <code>.pkl</code>-файла убедитесь, что все нужные библиотеки установлены (например, <code>torch</code>, <code>stable-baselines3</code>).</li>
+            <li>Можно запустить модель против <strong>самой себя</strong> — просто выберите её в обоих дропдаунах.</li>
+            <li>Длительность 30–60 с достаточна для большинства тестов; турнирная ставка — 180 с.</li>
+          </ul>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+</div>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
