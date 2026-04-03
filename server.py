@@ -448,6 +448,4 @@ def reset_leaderboard() -> dict:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import webbrowser
-    threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:8080")).start()
     uvicorn.run("server:app", host="127.0.0.1", port=8080, reload=False)
