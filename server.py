@@ -39,7 +39,7 @@ DB_PATH = BASE_DIR / "leaderboard.db"
 if str(MODELS_DIR) not in sys.path:
     sys.path.insert(0, str(MODELS_DIR))
 
-ALLOWED_EXTENSIONS = {".pkl", ".py"}
+ALLOWED_EXTENSIONS = {".pkl"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
