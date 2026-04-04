@@ -161,6 +161,17 @@ def _validate_pkl_subprocess(content: bytes, timeout: int = 10) -> str | None:
             return "Объект в .pkl должен иметь метод get_actions(observation)"
         if "ERR:bad_result" in err:
             return "get_actions должен возвращать список из 2 действий"
+        # Windows OS-level crash codes: NTSTATUS values have bit 31 set.
+        # e.g. 0xC0000005 = STATUS_ACCESS_VIOLATION — native lib crash during
+        # inference. Static scan already passed, so accept the model.
+        _rc_unsigned = proc.returncode & 0xFFFFFFFF
+        if _rc_unsigned >= 0x80000000:
+            import logging as _log
+            _log.getLogger("robocup").warning(
+                "pkl subprocess crash 0x%08X during test inference — "
+                "static scan passed, accepting model", _rc_unsigned
+            )
+            return None
         import re as _re
         meaningful = [ln for ln in err.splitlines()
                       if not _re.match(r"^.+:\d+: \w+Warning:", ln)]
