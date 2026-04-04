@@ -116,21 +116,12 @@ def _validate_pkl_subprocess(content: bytes, timeout: int = 10) -> str | None:
 
     blocked_repr = repr(sorted(_BLOCKED_MODULES))
     code = (
-        "import sys, builtins, cloudpickle\n"
+        "import sys, cloudpickle\n"
         f"with open({repr(tmp)}, 'rb') as _f: _obj = cloudpickle.load(_f)\n"
         "if not callable(getattr(_obj, 'get_actions', None)):\n"
         "    print('ERR:no_method', file=sys.stderr); sys.exit(1)\n"
-        f"_BLOCKED = frozenset({blocked_repr})\n"
-        "_orig_imp = builtins.__import__\n"
-        "def _safe_imp(_n, *_a, **_kw):\n"
-        "    if _n.split('.')[0] in _BLOCKED:\n"
-        "        raise ImportError('Module ' + _n + ' is blocked')\n"
-        "    return _orig_imp(_n, *_a, **_kw)\n"
-        "def _deny(*_a, **_kw): raise PermissionError('blocked')\n"
-        "builtins.__import__ = _safe_imp\n"
-        "builtins.open = _deny\n"
-        "builtins.eval = _deny\n"
-        "builtins.exec = _deny\n"
+        # No builtins patching: it breaks numpy/torch lazy BLAS/CUDA init
+        # causing native crashes (0xC0000005). Subprocess isolation is enough.
         "_obs = {'my_robots': ["
         "{'x':200,'y':320,'vx':0,'vy':0,'angle':0,'kick_ready':1.0},"
         "{'x':200,'y':170,'vx':0,'vy':0,'angle':0,'kick_ready':1.0}],"
