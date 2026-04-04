@@ -44,6 +44,137 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 # ---------------------------------------------------------------------------
+# Pickle security: static opcode scan + subprocess validator
+# ---------------------------------------------------------------------------
+
+_BLOCKED_MODULES = frozenset({
+    'os', 'nt', 'posix', 'subprocess',
+    'socket', 'ssl', 'urllib', 'http',
+    'ftplib', 'smtplib', 'imaplib', 'poplib',
+    'ctypes', 'signal',
+    'winreg', '_winreg', 'msvcrt',
+    '_thread', 'threading', 'multiprocessing', 'concurrent',
+    'asyncio', 'marshal', 'shelve', 'dbm',
+})
+_BLOCKED_BUILTINS = frozenset({'eval', 'exec', 'compile', 'open', '__import__', 'breakpoint'})
+
+
+def _scan_pickle_opcodes(content: bytes) -> str | None:
+    """Static pickle bytecode scan — detects __reduce__ exploits before any execution."""
+    import pickletools, io
+
+    def _check(module: str, name: str) -> str | None:
+        top = module.split('.')[0]
+        if top in _BLOCKED_MODULES or module in _BLOCKED_MODULES:
+            return f"Запрещённый модуль в .pkl: '{module}'"
+        if module == 'builtins' and name in _BLOCKED_BUILTINS:
+            return f"Запрещённая функция в .pkl: '{name}'"
+        return None
+
+    try:
+        ops = list(pickletools.genops(io.BytesIO(content)))
+    except Exception:
+        return "Некорректный .pkl файл (не удалось прочитать)"
+
+    str_stack: list[str] = []
+    for opcode, arg, pos in ops:
+        n = opcode.name
+        if n == 'GLOBAL':
+            if isinstance(arg, tuple) and len(arg) == 2:
+                err = _check(str(arg[0]), str(arg[1]))
+            elif isinstance(arg, str):
+                parts = arg.split(' ', 1)
+                err = _check(parts[0], parts[1] if len(parts) > 1 else '')
+            else:
+                err = None
+            if err:
+                return err
+        elif n in ('SHORT_BINUNICODE', 'BINUNICODE', 'BINUNICODE8',
+                   'BINSTRING', 'SHORT_BINSTRING', 'STRING', 'UNICODE'):
+            str_stack.append(str(arg) if arg is not None else '')
+            if len(str_stack) > 4:
+                str_stack.pop(0)
+        elif n == 'STACK_GLOBAL':
+            if len(str_stack) >= 2:
+                err = _check(str_stack[-2], str_stack[-1])
+                if err:
+                    return err
+    return None
+
+
+def _validate_pkl_subprocess(content: bytes, timeout: int = 10) -> str | None:
+    """Validate .pkl in an isolated subprocess. Returns None if OK, error string otherwise."""
+    import subprocess, sys as _sys, os, tempfile
+
+    err = _scan_pickle_opcodes(content)
+    if err:
+        return err
+
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as _f:
+        _f.write(content)
+        tmp = _f.name
+
+    blocked_repr = repr(sorted(_BLOCKED_MODULES))
+    code = (
+        "import sys, builtins, cloudpickle\n"
+        f"with open({repr(tmp)}, 'rb') as _f: _obj = cloudpickle.load(_f)\n"
+        "if not callable(getattr(_obj, 'get_actions', None)):\n"
+        "    print('ERR:no_method', file=sys.stderr); sys.exit(1)\n"
+        f"_BLOCKED = frozenset({blocked_repr})\n"
+        "_orig_imp = builtins.__import__\n"
+        "def _safe_imp(_n, *_a, **_kw):\n"
+        "    if _n.split('.')[0] in _BLOCKED:\n"
+        "        raise ImportError('Module ' + _n + ' is blocked')\n"
+        "    return _orig_imp(_n, *_a, **_kw)\n"
+        "def _deny(*_a, **_kw): raise PermissionError('blocked')\n"
+        "builtins.__import__ = _safe_imp\n"
+        "builtins.open = _deny\n"
+        "builtins.eval = _deny\n"
+        "builtins.exec = _deny\n"
+        "_obs = {'my_robots': ["
+        "{'x':200,'y':320,'vx':0,'vy':0,'angle':0,'kick_ready':1.0},"
+        "{'x':200,'y':170,'vx':0,'vy':0,'angle':0,'kick_ready':1.0}],"
+        "'ball':{'x':540,'y':320,'vx':0,'vy':0},"
+        "'score':{'my':0,'opponent':0},'time_remaining':120.0,'period_seconds':120.0,"
+        "'field':{'x':0.0,'y':0.0,'width':1080.0,'height':640.0,"
+        "'goal_y_top':150.0,'goal_y_bottom':370.0},'opponent_robots':[]}\n"
+        "_r = _obj.get_actions(_obs)\n"
+        "if not isinstance(_r, (list, tuple)) or len(_r) < 2:\n"
+        "    print('ERR:bad_result', file=sys.stderr); sys.exit(2)\n"
+    )
+
+    _SECRET_PATTERNS = ('SECRET', 'PASSWORD', 'PASSWD', 'CREDENTIAL',
+                        'DATABASE_URL', 'DB_URL', 'API_KEY', 'TOKEN')
+    clean_env = {k: v for k, v in os.environ.items()
+                 if not any(p in k.upper() for p in _SECRET_PATTERNS)}
+    clean_env.pop('PYTHONHOME', None)
+
+    try:
+        proc = subprocess.run(
+            [_sys.executable, "-W", "ignore", "-c", code],
+            capture_output=True, text=True, timeout=timeout, env=clean_env,
+        )
+        if proc.returncode == 0:
+            return None
+        err = proc.stderr.strip()
+        if "ERR:no_method" in err:
+            return "Объект в .pkl должен иметь метод get_actions(observation)"
+        if "ERR:bad_result" in err:
+            return "get_actions должен возвращать список из 2 действий"
+        import re as _re
+        meaningful = [ln for ln in err.splitlines()
+                      if not _re.match(r"^.+:\d+: \w+Warning:", ln)]
+        return (meaningful[-1] if meaningful else None) or f"Ошибка выполнения (код {proc.returncode})"
+    except subprocess.TimeoutExpired:
+        return "Тестовый запуск превысил лимит времени (10 сек)"
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
 
@@ -303,6 +434,11 @@ async def upload_model(file: UploadFile = File(...)):
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(400, "File too large (max 50 MB)")
+    # Validate the pkl before saving
+    if path.suffix == ".pkl":
+        err = _validate_pkl_subprocess(content)
+        if err:
+            raise HTTPException(422, err)
     dest = MODELS_DIR / safe_name
     dest.write_bytes(content)
     return {"name": safe_name, "size": len(content)}

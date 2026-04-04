@@ -9,6 +9,9 @@ venv/
 # Database (личные данные пользователя)
 leaderboard.db
 
+# User-uploaded models (private, generated at runtime)
+models/
+
 # Logs
 logs/
 *.log
@@ -16,3 +19,8 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
