@@ -125,10 +125,13 @@ def _validate_pkl_subprocess(content: bytes, timeout: int = 10) -> str | None:
         "_obs = {'my_robots': ["
         "{'x':200,'y':320,'vx':0,'vy':0,'angle':0,'kick_ready':1.0},"
         "{'x':200,'y':170,'vx':0,'vy':0,'angle':0,'kick_ready':1.0}],"
+        "'opponent_robots':["
+        "{'x':880,'y':320,'vx':0,'vy':0,'angle':3.14159,'kick_ready':1.0},"
+        "{'x':880,'y':170,'vx':0,'vy':0,'angle':3.14159,'kick_ready':1.0}],"
         "'ball':{'x':540,'y':320,'vx':0,'vy':0},"
         "'score':{'my':0,'opponent':0},'time_remaining':120.0,'period_seconds':120.0,"
         "'field':{'x':0.0,'y':0.0,'width':1080.0,'height':640.0,"
-        "'goal_y_top':150.0,'goal_y_bottom':370.0},'opponent_robots':[]}\n"
+        "'goal_y_top':150.0,'goal_y_bottom':370.0}}\n"
         "_r = _obj.get_actions(_obs)\n"
         "if not isinstance(_r, (list, tuple)) or len(_r) < 2:\n"
         "    print('ERR:bad_result', file=sys.stderr); sys.exit(2)\n"
@@ -154,15 +157,22 @@ def _validate_pkl_subprocess(content: bytes, timeout: int = 10) -> str | None:
             return "get_actions должен возвращать список из 2 действий"
         # Windows OS-level crash codes: NTSTATUS values have bit 31 set.
         # e.g. 0xC0000005 = STATUS_ACCESS_VIOLATION — native lib crash during
-        # inference. Static scan already passed, so accept the model.
+        # inference. A model that crashes a subprocess will also crash the
+        # match thread and kill the server (SEH bypasses except Exception).
         _rc_unsigned = proc.returncode & 0xFFFFFFFF
         if _rc_unsigned >= 0x80000000:
             import logging as _log
             _log.getLogger("robocup").warning(
-                "pkl subprocess crash 0x%08X during test inference — "
-                "static scan passed, accepting model", _rc_unsigned
+                "pkl subprocess crash 0x%08X during test inference — rejected",
+                _rc_unsigned,
             )
-            return None
+            return (
+                f"Модель аварийно завершилась при тестировании "
+                f"(ошибка 0x{_rc_unsigned:08X}). "
+                "Скорее всего, проблема с numpy/BLAS. "
+                "Убедитесь, что get_actions() работает без сторонних C-расширений, "
+                "или пересоберите модель с numpy>=2.0."
+            )
         import re as _re
         meaningful = [ln for ln in err.splitlines()
                       if not _re.match(r"^.+:\d+: \w+Warning:", ln)]
